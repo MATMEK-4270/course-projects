@@ -156,7 +156,7 @@ class VibFD2(VibSolver):
         assert T.is_integer() and T % 2 == 0
 
     def assemble(self) -> tuple[sparse.lil_matrix, np.ndarray]:
-        D2 = sparse.diags([1, -2, 1], [-1, 0, 1], (self.Nt+1, self.Nt+1))
+        D2 = sparse.diags([1., -2., 1.], [-1, 0, 1], (self.Nt+1, self.Nt+1))
         D2 *= (1/self.dt**2)
         A = (D2 + self.w**2*sparse.eye(self.Nt+1)).tolil()
         b = np.zeros(self.Nt+1)
@@ -202,7 +202,7 @@ class VibFD4(VibFD2):
     order: int = 4
 
     def assemble(self) -> tuple[sparse.lil_matrix, np.ndarray]:
-        D2 = sparse.diags([-1, 16, -30, 16, -1], [-2, -1, 0, 1, 2], (self.Nt+1, self.Nt+1), 'lil')
+        D2 = sparse.diags([-1., 16., -30., 16., -1.], [-2, -1, 0, 1, 2], (self.Nt+1, self.Nt+1), 'lil')
         D2[1, :6] = np.array([10, -15, -4, 14, -6, 1])
         D2[-2, -6:] = np.array([10, -15, -4, 14, -6, 1])[::-1]
         D2[0, :6] = np.array([45, -154, 214, -156, 61, -10])         # not used

@@ -30,7 +30,7 @@ class Poisson:
         D = cast(
             sparse.lil_matrix,
             sparse.diags(
-                [1, -2, 1],
+                [1.0, -2.0, 1.0],
                 [-1, 0, 1],  # type: ignore[arg-type]
                 (N + 1, N + 1),
                 format="lil",
@@ -146,7 +146,7 @@ class Poisson:
             N0 *= 2
         r = [
             np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
-            for i in range(1, m + 1, 1)
+            for i in range(1, m, 1)
         ]
         return r, np.array(E), np.array(h)
 

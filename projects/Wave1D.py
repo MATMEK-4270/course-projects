@@ -54,7 +54,7 @@ class Wave1D:
         ----
         The returned matrix is not divided by dx**2
         """
-        D = sparse.diags([1, -2, 1], [-1, 0, 1], (self.N + 1, self.N + 1), "lil")
+        D = sparse.diags([1., -2., 1.], [-1, 0, 1], (self.N + 1, self.N + 1), "lil")
         if bc == 1:  # Neumann condition is baked into stencil
             D[0, :4] = -2, 2, 0, 0
             D[-1, -4:] = 0, 0, 2, -2
