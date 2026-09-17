@@ -7,12 +7,12 @@ where w is a constant and f(t) is a source term assumed to be 0.
 We use various boundary conditions.
 
 """
-
 import numpy as np
 import sympy as sp
+from scipy import sparse
+from scipy.sparse import linalg as sparse_linalg
 
-t = sp.Symbol("t")
-
+t = sp.Symbol('t')
 
 class VibSolver:
     """
@@ -48,12 +48,13 @@ class VibSolver:
             Number of time steps
         """
         self.Nt = Nt
-        self.dt = self.T / Nt
-        self.t = np.linspace(0, self.T, Nt + 1)
+        self.dt = self.T/Nt
+        self.t = np.linspace(0, self.T, Nt+1)
 
     def ue(self) -> sp.Expr:
-        """Return exact solution as sympy function"""
-        return self.I * sp.cos(self.w * t)
+        """Return exact solution as sympy function
+        """
+        return self.I*sp.cos(self.w*t)
 
     def u_exact(self) -> np.ndarray:
         """Exact solution of the vibration equation
@@ -75,7 +76,7 @@ class VibSolver:
         """
         u = self()
         ue = self.u_exact()
-        return np.sqrt(self.dt * np.sum((ue - u) ** 2))
+        return np.sqrt(np.trapezoid((ue-u)**2, self.t))
 
     def convergence_rates(
         self, m: int = 4, N0: int = 32
@@ -101,31 +102,27 @@ class VibSolver:
         """
         E = []
         dt = []
-        self.set_mesh(N0)  # Set initial size of mesh
+        self.set_mesh(N0) # Set initial size of mesh
         for _ in range(m):
-            self.set_mesh(self.Nt + 10)
+            self.set_mesh(self.Nt+10)
             E.append(self.l2_error())
             dt.append(self.dt)
-        r = [
-            np.log(E[i - 1] / E[i]) / np.log(dt[i - 1] / dt[i])
-            for i in range(1, m + 1, 1)
-        ]
+        r = [np.log(E[i-1]/E[i])/np.log(dt[i-1]/dt[i]) for i in range(1, m, 1)]
         return r, np.array(E), np.array(dt)
 
     def test_order(self, m: int = 5, N0: int = 100, tol: float = 0.1) -> None:
         r, _, _ = self.convergence_rates(m, N0)
-        assert abs(r[-1] - self.order) < tol
+        assert abs(r[-1]-self.order) < tol
 
     def __call__(self) -> np.ndarray:
         """Solve vibration equation
 
         Returns
         -------
-        u : array_like
-            The solution at times n*dt, n=0,1,...,Nt
-        """
-        raise NotImplementedError
+        The solution as a Numpy array
 
+        """
+        raise NotImplementedError("This is an abstract class, use a subclass")
 
 class VibHPL(VibSolver):
     """
@@ -133,17 +130,15 @@ class VibHPL(VibSolver):
 
     Boundary conditions u(0)=I and u'(0)=0
     """
-
     order: int = 2
 
     def __call__(self) -> np.ndarray:
-        u = np.zeros(self.Nt + 1)
+        u = np.zeros(self.Nt+1)
         u[0] = self.I
-        u[1] = u[0] - 0.5 * self.dt**2 * self.w**2 * u[0]
+        u[1] = u[0] - 0.5*self.dt**2*self.w**2*u[0]
         for n in range(1, self.Nt):
-            u[n + 1] = 2 * u[n] - u[n - 1] - self.dt**2 * self.w**2 * u[n]
+            u[n+1] = 2*u[n] - u[n-1] - self.dt**2*self.w**2*u[n]
         return u
-
 
 class VibFD2(VibSolver):
     """
@@ -153,7 +148,6 @@ class VibFD2(VibSolver):
 
     The boundary conditions require that T = n*pi/w, where n is an even integer.
     """
-
     order: int = 2
 
     def __init__(self, Nt: int, T: float, w: float = 0.35, I: float = 1.0) -> None:
@@ -161,12 +155,23 @@ class VibFD2(VibSolver):
         T = float(T * w / np.pi)
         assert T.is_integer() and T % 2 == 0
 
+    def assemble(self) -> tuple[sparse.lil_matrix, np.ndarray]:
+        D2 = sparse.diags([1, -2, 1], [-1, 0, 1], (self.Nt+1, self.Nt+1))
+        D2 *= (1/self.dt**2)
+        A = (D2 + self.w**2*sparse.eye(self.Nt+1)).tolil()
+        b = np.zeros(self.Nt+1)
+        return A, b
+
     def __call__(self) -> np.ndarray:
-        u = np.zeros(self.Nt + 1)
+        A, b = self.assemble()
+        A[0, :3] = 1, 0, 0
+        A[-1, -3:] = 0, 0, 1
+        b[0] = self.I
+        b[-1] = self.I
+        u = sparse_linalg.spsolve(A.tocsr(), b)
         return u
 
-
-class VibFD3(VibSolver):
+class VibFD3(VibFD2):
     """
     Second order accurate solver using mixed Dirichlet and Neumann boundary
     conditions::
@@ -175,18 +180,16 @@ class VibFD3(VibSolver):
 
     The boundary conditions require that T = n*pi/w, where n is an even integer.
     """
-
     order: int = 2
 
-    def __init__(self, Nt: int, T: float, w: float = 0.35, I: float = 1.0) -> None:
-        VibSolver.__init__(self, Nt, T, w, I)
-        T = float(T * w / np.pi)
-        assert T.is_integer() and T % 2 == 0
-
     def __call__(self) -> np.ndarray:
-        u = np.zeros(self.Nt + 1)
+        A, b = self.assemble()
+        A[0, :3] = 1, 0, 0
+        A[-1, -3:] = np.array([-1, 4, -3])/(2*self.dt)
+        b[0] = self.I
+        b[-1] = 0
+        u = sparse_linalg.spsolve(A.tocsr(), b)
         return u
-
 
 class VibFD4(VibFD2):
     """
@@ -196,21 +199,63 @@ class VibFD4(VibFD2):
 
     The boundary conditions require that T = n*pi/w, where n is an even integer.
     """
-
     order: int = 4
 
+    def assemble(self) -> tuple[sparse.lil_matrix, np.ndarray]:
+        D2 = sparse.diags([-1, 16, -30, 16, -1], [-2, -1, 0, 1, 2], (self.Nt+1, self.Nt+1), 'lil')
+        D2[1, :6] = np.array([10, -15, -4, 14, -6, 1])
+        D2[-2, -6:] = np.array([10, -15, -4, 14, -6, 1])[::-1]
+        D2[0, :6] = np.array([45, -154, 214, -156, 61, -10])         # not used
+        D2[-1, -6:] = np.array([45, -154, 214, -156, 61, -10])[::-1] # not used
+        D2 *= (1/(12*self.dt**2))
+        b = np.zeros(self.Nt+1)
+        return (D2 + self.w**2*sparse.eye(self.Nt+1)).tolil(), b
+
     def __call__(self) -> np.ndarray:
-        u = np.zeros(self.Nt + 1)
+        A, b = self.assemble()
+        A[0, :6] = 1, 0, 0, 0, 0, 0
+        A[-1, -6:] = 0, 0, 0, 0, 0, 1
+        b[0] = self.I
+        b[-1] = self.I
+        u = sparse_linalg.spsolve(A.tocsr(), b)
+        return u
+
+class VibFD5(VibFD2):
+
+    def __init__(self, Nt: int, T: float, w:float=0.35, I:float=1) -> None:
+        VibSolver.__init__(self, Nt, T, w, I)
+
+    def ue(self) -> sp.Expr:
+        return sp.exp(sp.sin(t))
+        #return t**4
+
+    def assemble(self) -> tuple[sparse.lil_matrix, np.ndarray]:
+        D2 = sparse.diags([1, -2, 1], [-1, 0, 1], (self.Nt+1, self.Nt+1))
+        D2 *= (1/self.dt**2)
+        A = (D2 + self.w**2*sparse.eye(self.Nt+1)).tolil()
+        ue = self.ue()
+        f = ue.diff(t, 2) + self.w**2 * ue
+        b = sp.lambdify(t, f)(self.t)
+        return A, b
+
+    def __call__(self) -> np.ndarray:
+        A, b = self.assemble()
+        A[0, :3] = 1, 0, 0
+        A[-1, -3:] = 0, 0, 1
+        b[0] = self.ue().subs(t, 0)
+        b[-1] = self.ue().subs(t, self.T)
+        u = sparse_linalg.spsolve(A.tocsr(), b)
         return u
 
 
 def test_order():
-    w = 0.35
-    VibHPL(8, 2 * np.pi / w, w).test_order()
-    VibFD2(8, 2 * np.pi / w, w).test_order()
-    VibFD3(8, 2 * np.pi / w, w).test_order()
-    VibFD4(8, 2 * np.pi / w, w).test_order(N0=20)
+    w: float = 0.35
+    VibHPL(8, 2*np.pi/w, w).test_order()
+    VibFD2(8, 2*np.pi/w, w).test_order()
+    VibFD3(8, 2*np.pi/w, w).test_order()
+    VibFD4(8, 2*np.pi/w, w).test_order(N0=20)
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     test_order()
+    #a = VibFD4(8, 2*np.pi/0.35, 0.35)
+    #b = a()

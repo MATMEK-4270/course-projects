@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-from typing import cast
-
 import matplotlib.pyplot as plt
 import numpy as np
 import sympy as sp
@@ -58,12 +54,13 @@ class Wave1D:
         ----
         The returned matrix is not divided by dx**2
         """
-        D = cast(sparse.lil_matrix, sparse.diags([1, -2, 1], [-1, 0, 1], (self.N + 1, self.N + 1), "lil"))
+        D = sparse.diags([1, -2, 1], [-1, 0, 1], (self.N + 1, self.N + 1), "lil")
         if bc == 1:  # Neumann condition is baked into stencil
-            raise NotImplementedError("Neumann boundary condition is not implemented yet")
+            D[0, :4] = -2, 2, 0, 0
+            D[-1, -4:] = 0, 0, 2, -2
 
         elif bc == 3:  # periodic (Note u[0] = u[-1])
-            raise NotImplementedError("Periodic boundary condition is not implemented yet")
+            D[0, -2] = 1
 
         return D
 
@@ -92,10 +89,22 @@ class Wave1D:
             pass
 
         elif bc == 2:  # Open boundary
-            raise NotImplementedError("Open boundary condition is not implemented yet")
+            C = self.cfl
+            # self.unp1[0] = self.un[0] + C * (self.un[1]-self.un[0])
+            # self.unp1[-1] = self.un[-1] - C * (self.un[-1]-self.un[-2])
+            u[0] = (
+                2 * (1 - C) * self.un[0]
+                - (1 - C) / (1 + C) * self.unm1[0]
+                + 2 * C**2 / (1 + C) * self.un[1]
+            )
+            u[-1] = (
+                2 * (1 - C) * self.un[-1]
+                - (1 - C) / (1 + C) * self.unm1[-1]
+                + 2 * C**2 / (1 + C) * self.un[-2]
+            )
 
         elif bc == 3:
-            raise NotImplementedError("Periodic boundary condition is not implemented yet")
+            u[-1] = u[0]
 
         else:
             raise RuntimeError(f"Wrong bc = {bc}")
@@ -168,7 +177,7 @@ class Wave1D:
 
         return plotdata
 
-    def plot_with_offset(self, data: dict[int, np.ndarray]) -> None:
+    def plot_with_offset(self, data):
         v = np.array(list(data.values()))
         t = np.array(list(data.keys()))
         dt = t[1] - t[0]

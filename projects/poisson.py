@@ -24,11 +24,14 @@ class Poisson:
 
     def D2(self, N: int, dx: float) -> sparse.lil_matrix:
         """Return second order differentiation matrix"""
+        # scipy's untyped stubs infer offsets as int from its default value,
+        # so a sequence of offsets is flagged even though it's exactly what
+        # the docs ask for.
         D = cast(
             sparse.lil_matrix,
             sparse.diags(
                 [1, -2, 1],
-                [-1, 0, 1],
+                [-1, 0, 1],  # type: ignore[arg-type]
                 (N + 1, N + 1),
                 format="lil",
             ),
@@ -126,9 +129,33 @@ class Poisson:
         uj = sp.lambdify(x, ue)(mesh)
         return np.sqrt(dx * np.sum((uj - u) ** 2))
 
+    def convergence_rates(
+        self, ue: sp.Expr, m: int = 6
+    ) -> tuple[list[float], np.ndarray, np.ndarray]:
+        E = []
+        h = []
+        N0 = 8
+        for _ in range(m):
+            u = self(
+                N0,
+                f=sp.diff(ue, x, 2),
+                bc=(float(ue.subs(x, 0)), float(ue.subs(x, self.L))),
+            )
+            E.append(self.l2_error(u, ue))
+            h.append(self.L / N0)
+            N0 *= 2
+        r = [
+            np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i])
+            for i in range(1, m + 1, 1)
+        ]
+        return r, np.array(E), np.array(h)
+
 
 def test_poisson():
-    assert False
+    sol = Poisson(1)
+    ue = sp.exp(4 * sp.cos(x))
+    r, _, _ = sol.convergence_rates(ue)
+    assert abs(r[-1] - 2) < 1e-2, r
 
 
 if __name__ == "__main__":
